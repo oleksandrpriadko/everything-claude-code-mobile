@@ -15,7 +15,7 @@ sourceSets {
     val commonMain by getting {
         dependencies {
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-            implementation("org.jetbrains.kotlinx:kotlinx-datetime:1.6.0")
+            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1") // kotlinx-datetime has no 1.x release; 0.6.x is the current stable line
         }
     }
 }
@@ -25,7 +25,7 @@ Enable serialization plugin:
 ```kotlin
 plugins {
     kotlin("multiplatform")
-    kotlin("plugin.serialization") version "1.9.20"
+    kotlin("plugin.serialization") version "2.0.21" // aligned with room-patterns' Kotlin/KSP toolchain version
 }
 ```
 
@@ -76,23 +76,24 @@ sealed class HomeState {
 }
 ```
 
-### 3. Result Wrapper
+### 3. DomainOutcome Wrapper
 
 ```kotlin
-// commonMain/kotlin/com/example/shared/model/Result.kt
+// commonMain/kotlin/com/example/shared/model/DomainOutcome.kt
+// Named DomainOutcome, not Result, so it doesn't shadow kotlin.Result.
 @Serializable
-sealed class Result<out T> {
+sealed class DomainOutcome<out T> {
     @Serializable
-    data class Success<T>(val data: T) : Result<T>()
+    data class Success<T>(val data: T) : DomainOutcome<T>()
 
     @Serializable
-    data class Error(val code: String, val message: String) : Result<Nothing>()
+    data class Error(val code: String, val message: String) : DomainOutcome<Nothing>()
 }
 
-// Helper to convert from Kotlin Result
-fun <T> Result<T>.toKotlinResult(): kotlin.Result<T> = when (this) {
-    is Result.Success -> kotlin.Result.success(data)
-    is Result.Error -> kotlin.Result.failure(RuntimeException("$code: $message"))
+// Helper to convert to Kotlin's stdlib Result
+fun <T> DomainOutcome<T>.toKotlinResult(): kotlin.Result<T> = when (this) {
+    is DomainOutcome.Success -> kotlin.Result.success(data)
+    is DomainOutcome.Error -> kotlin.Result.failure(RuntimeException("$code: $message"))
 }
 ```
 
@@ -327,7 +328,7 @@ shared/commonMain/kotlin/com/example/shared/
 │   ├── Item.kt
 │   ├── Pagination.kt
 │   ├── UiState.kt
-│   └── Result.kt
+│   └── DomainOutcome.kt
 ├── model/auth/
 │   ├── AuthRequests.kt
 │   ├── AuthResponses.kt
@@ -351,7 +352,7 @@ data class User(val id: String, val name: String)
 
 // ✅ Use sealed classes for fixed types
 @Serializable
-sealed class Result
+sealed class DomainOutcome
 
 // ✅ Provide default values for optional fields
 @Serializable

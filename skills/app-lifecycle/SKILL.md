@@ -87,7 +87,7 @@ fun SearchScreen() {
 
 ```kotlin
 @Composable
-fun ProductListScreen(viewModel: ProductListViewModel = hiltViewModel()) {
+fun ProductListScreen(viewModel: ProductListViewModel = koinViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     when (val state = uiState) {

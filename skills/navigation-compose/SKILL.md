@@ -5,6 +5,10 @@ description: Jetpack Compose Navigation patterns - type-safe routes, NavHost set
 
 # Jetpack Compose Navigation Patterns
 
+> **Navigation 3 (`androidx.navigation3`) is the default for greenfield Compose navigation work.** It is a separate, Compose-first library (you own the back stack as observable state; a `NavDisplay` renders it via an `entryProvider` — no `NavController`, no graph builder) and is the direction Jetpack navigation is heading. Use the `navigation-3` skill for that.
+>
+> The patterns below (`androidx.navigation:navigation-compose`, `NavHost`/`NavController`) are **for maintaining existing projects that are already built on classic Navigation Compose** — not guidance for starting new navigation from scratch. Reach for this file when you're extending or fixing an app already on this framework, or in the rare case Nav3 genuinely can't fit.
+
 ## Dependencies
 
 ```kotlin
@@ -334,6 +338,16 @@ fun navigateToProfile_displaysUserProfile() {
 }
 ```
 
+## Compose-Shape Guardrails (apply with any Nav version)
+
+These constrain *how composables interact with navigation*, independent of whether you're on classic Navigation Compose or Navigation 3:
+
+- **Destination keys/data are top-level `@Serializable` fields, not captured callbacks.** A route like `Route.UserProfile(userId: String)` should carry plain data — capturing a lambda in a route class defeats type-safe routing and breaks `SavedStateHandle` restoration.
+- **No `@Composable` lambdas in destination data.** The route describes *where you are*, not what's drawn; embedding a `@Composable` field couples navigation identity to composition identity and breaks back-stack restoration on process death.
+- **ViewModels emit navigation events via a `Flow`/`Channel`** (e.g. `Channel<NavEvent>(BUFFERED).receiveAsFlow()`), collected in a `LaunchedEffect` that calls `navController.navigate(...)` — don't inject `NavController` into a ViewModel.
+- **Don't navigate during composition** — trigger `navController.navigate(...)` from an event callback or a `LaunchedEffect`, never directly in the composable body.
+- **Don't mix string routes and type-safe `@Serializable` routes** in the same graph; pick one scheme per `NavHost`.
+
 ## Best Practices
 
 - Use type-safe routes with `@Serializable` data classes/objects over raw string routes.
@@ -341,5 +355,5 @@ fun navigateToProfile_displaysUserProfile() {
 - Use `popUpTo` with `inclusive = true` when navigating after login to clear the auth stack.
 - Use `launchSingleTop = true` for bottom tabs to prevent duplicate destinations.
 - Save and restore tab state with `saveState = true` and `restoreState = true`.
-- Scope ViewModels to navigation entries with `hiltViewModel()` or `koinViewModel()`.
+- Scope ViewModels to navigation entries with `koinViewModel()`.
 - Test navigation by asserting on `navController.currentBackStackEntry`.

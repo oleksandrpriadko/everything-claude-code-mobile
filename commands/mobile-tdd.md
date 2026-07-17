@@ -24,4 +24,4 @@ Test-driven development for Android.
 ## Invokes
 
 - `mobile-tdd-guide` agent
-- References `mobile-testing` skill
+- References `android-testing` skill

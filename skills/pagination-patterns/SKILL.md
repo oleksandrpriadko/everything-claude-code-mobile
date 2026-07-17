@@ -5,6 +5,10 @@ description: Pagination patterns for mobile - Paging 3 for Android (PagingSource
 
 # Pagination Patterns for Mobile
 
+> For expert-level/advanced Paging 3 material this file doesn't cover (KMP `paging-common` version facts, the
+> dual-flow `UiState`/`PagingData` separation rule, `cachedIn` placement pitfalls, mandatory `itemKey` identity
+> rules, and `TestPager`/`asSnapshot` testing), see `skills/paging/SKILL.md`.
+
 ## Dependencies (Android)
 
 ```kotlin
@@ -17,6 +21,15 @@ dependencies {
 ```
 
 ## PagingSource Implementation
+
+> **Caveat (audit) — API-dependent, confirm before reusing:** this example keys pages with a plain incrementing
+> `Int` (`page = params.key ?: 1`, `nextKey = page + 1`, `prevKey = page - 1`). That scheme assumes the REST API is
+> strictly offset/page-based, 1-indexed, and stable across requests. It is **not** a universal pattern — do not
+> copy it as-is. If the backend is cursor-based (see the `CursorArticlePagingSource` example below), uses 0-indexed
+> pages, paginates by offset+limit rather than page number, or returns items that can shift between requests
+> (inserts/deletes changing offsets), this key strategy can produce duplicate or skipped items. Always verify the
+> actual pagination contract of the specific REST API you're integrating with before deciding whether an
+> integer page key, a raw offset, or a server-issued cursor is the correct `Key` type for your `PagingSource`.
 
 ```kotlin
 class ArticlePagingSource(
@@ -161,14 +174,34 @@ fun ArticleListScreen(viewModel: ArticleListViewModel = koinViewModel()) {
 
 ## Load State Handling
 
+> **Fixed (audit):** the previous version of this example put the `when (articles.loadState.refresh)` block and
+> `PullToRefreshBox { ArticleLazyColumn(...) }` as two siblings inside the same `Box`. Once loading finished,
+> `NotLoading` rendered `ArticleLazyColumn` *and* `PullToRefreshBox`'s content lambda rendered `ArticleLazyColumn`
+> again — the list (and, during a load, the loading indicator) was drawn twice, stacked on top of itself. The fix
+> below makes `PullToRefreshBox` the single container and moves the `when` state handling *inside* it, so there is
+> exactly one render path to `ArticleLazyColumn` at any time.
+
 ```kotlin
 @Composable
 fun PaginatedList(articles: LazyPagingItems<Article>) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Initial loading state
+    // PullToRefreshBox is the single source of truth for content below.
+    // Do NOT also call ArticleLazyColumn outside this block — doing so
+    // renders the list twice (stacked) inside the same Box, which was
+    // the bug in the previous version of this example.
+    PullToRefreshBox(
+        isRefreshing = articles.loadState.refresh is LoadState.Loading,
+        onRefresh = { articles.refresh() }
+    ) {
         when (articles.loadState.refresh) {
             is LoadState.Loading -> {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                if (articles.itemCount == 0) {
+                    // Full-screen spinner only on the very first load.
+                    // Once items exist, rely on PullToRefreshBox's own
+                    // indicator instead of layering a second one.
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                } else {
+                    ArticleLazyColumn(articles = articles)
+                }
             }
             is LoadState.Error -> {
                 val error = (articles.loadState.refresh as LoadState.Error).error
@@ -184,14 +217,6 @@ fun PaginatedList(articles: LazyPagingItems<Article>) {
                     ArticleLazyColumn(articles = articles)
                 }
             }
-        }
-
-        // Pull to refresh
-        PullToRefreshBox(
-            isRefreshing = articles.loadState.refresh is LoadState.Loading,
-            onRefresh = { articles.refresh() }
-        ) {
-            ArticleLazyColumn(articles = articles)
         }
     }
 }
@@ -256,6 +281,33 @@ fun getOfflineArticles(): Flow<PagingData<ArticleEntity>> {
         remoteMediator = ArticleRemoteMediator(api, database),
         pagingSourceFactory = { database.articleDao().pagingSource() }
     ).flow
+}
+```
+
+## Offline-First Initial Loader Gating
+
+*(Merged from rcosteira's `android-skills:paging` skill.)*
+
+When a `RemoteMediator` backs the `PagingSource` with a local database (as in the `ArticleRemoteMediator` example
+above), gate the full-screen initial loader on `loadState.source.refresh` + `itemCount == 0` — **not** on the
+combined `loadState.refresh` (mediator + source merged) and not on the append/prepend states. The combined
+`loadState.refresh` flips to `NotLoading` as soon as the network fetch completes, which can be before Room has
+finished writing the new rows to disk — gating on it drops the spinner a frame early and can flash an empty list.
+`loadState.source.refresh` reflects the local `PagingSource` (the DB) itself, so it stays `Loading` until the
+freshly-written rows are actually observable.
+
+```kotlin
+@Composable
+fun OfflineFirstArticleList(articles: LazyPagingItems<ArticleEntity>) {
+    val isInitialLoad = articles.loadState.source.refresh is LoadState.Loading && articles.itemCount == 0
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isInitialLoad) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        } else {
+            ArticleLazyColumn(articles = articles)
+        }
+    }
 }
 ```
 

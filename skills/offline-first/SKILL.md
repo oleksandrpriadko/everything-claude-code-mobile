@@ -27,6 +27,7 @@ inline fun <ResultType, RequestType> networkBoundResource(
             val fetchedData = fetch()
             saveFetchResult(fetchedData)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             onFetchFailed(e)
         }
     }
@@ -48,6 +49,21 @@ sealed class Resource<out T> {
 ### Usage in Repository
 
 ```kotlin
+// `ArticleDao.transaction { }` is not a real Room API — Room has no such member on a DAO.
+// Use a @Transaction-annotated suspend function on the DAO instead (or wrap the calls in
+// db.withTransaction { } from androidx.room if the operations must span multiple DAOs).
+interface ArticleDao {
+    @Transaction
+    suspend fun replaceAll(articles: List<ArticleEntity>) {
+        deleteAll()
+        insertAll(articles)
+    }
+
+    suspend fun deleteAll()
+    suspend fun insertAll(articles: List<ArticleEntity>)
+    fun observeAll(): Flow<List<ArticleEntity>>
+}
+
 class ArticleRepository(
     private val api: ArticleApi,
     private val dao: ArticleDao,
@@ -57,10 +73,7 @@ class ArticleRepository(
         query = { dao.observeAll() },
         fetch = { api.getArticles() },
         saveFetchResult = { articles ->
-            dao.transaction {
-                dao.deleteAll()
-                dao.insertAll(articles.map { it.toEntity() })
-            }
+            dao.replaceAll(articles.map { it.toEntity() })
         },
         shouldFetch = { cachedArticles ->
             cachedArticles.isEmpty() || cachePolicy.isExpired("articles")
@@ -84,6 +97,7 @@ fun getCacheFirst(): Flow<Resource<List<Item>>> = flow {
         val fresh = api.fetchAll()
         dao.replaceAll(fresh.map { it.toEntity() })
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         if (cached.isEmpty()) emit(Resource.Error(e.message ?: "Network error"))
     }
     emitAll(dao.getAll().map { Resource.Success(it) })
@@ -100,6 +114,7 @@ fun getNetworkFirst(): Flow<Resource<List<Item>>> = flow {
         dao.replaceAll(fresh.map { it.toEntity() })
         emitAll(dao.getAll().map { Resource.Success(it) })
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         val cached = dao.getAll().first()
         if (cached.isNotEmpty()) {
             emit(Resource.Success(cached))
@@ -207,7 +222,8 @@ class SyncQueue(
 ) {
     suspend fun enqueue(operation: PendingOperation) {
         pendingOpsDao.insert(operation)
-        if (connectivityMonitor.isCurrentlyConnected()) {
+        // ConnectivityMonitor only exposes a Flow<Boolean>; take one value for a one-shot check.
+        if (connectivityMonitor.isConnected.first()) {
             processQueue()
         }
     }
@@ -219,6 +235,10 @@ class SyncQueue(
                 executeSyncOperation(op)
                 pendingOpsDao.delete(op)
             } catch (e: Exception) {
+                // Rethrow cancellation immediately: the op was NOT confirmed successful, so it
+                // must be left untouched (no delete, no retry-count bump) for the next run to
+                // retry — treating cancellation as a normal failure would corrupt the queue.
+                if (e is CancellationException) throw e
                 if (op.retryCount >= MAX_RETRIES) {
                     pendingOpsDao.delete(op)
                 } else {
@@ -275,6 +295,7 @@ suspend fun <T> retryWithBackoff(
         try {
             return block()
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             delay(currentDelay)
             currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelay)
         }
@@ -297,6 +318,7 @@ class SyncWorker(
             syncQueue.processQueue()
             Result.success()
         } catch (e: Exception) {
+            if (e is CancellationException) throw e   // WorkManager cancelled us — propagate, don't treat as a retryable failure
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }

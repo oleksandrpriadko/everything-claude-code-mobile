@@ -114,13 +114,30 @@ fun testLoadData() = runTest {
 
 **Fix Strategies:**
 ```kotlin
-// Register idling resources
-@IdlingResource
-val countingIdlingResource = CountingIdlingResource("api")
+// Register the idling resource explicitly with IdlingRegistry — there is
+// no `@IdlingResource` annotation, and a bare property is never wired in.
+private val countingIdlingResource = CountingIdlingResource("api")
 
-// Disable animations
-@get:Rule
-val disableAnimationsRule = DisableAnimationsRule()
+@Before
+fun registerIdlingResource() {
+    IdlingRegistry.getInstance().register(countingIdlingResource)
+}
+
+@After
+fun unregisterIdlingResource() {
+    IdlingRegistry.getInstance().unregister(countingIdlingResource)
+}
+
+// Disable animations at the OS level — Espresso has no built-in
+// `DisableAnimationsRule`; toggle the animator scales via the shell instead.
+@Before
+fun disableAnimations() {
+    InstrumentationRegistry.getInstrumentation().uiAutomation.apply {
+        executeShellCommand("settings put global window_animation_scale 0")
+        executeShellCommand("settings put global transition_animation_scale 0")
+        executeShellCommand("settings put global animator_duration_scale 0")
+    }
+}
 ```
 
 ### Compose Tests
@@ -139,14 +156,26 @@ val disableAnimationsRule = DisableAnimationsRule()
 
 **Fix Strategies:**
 ```kotlin
-@Composable
-fun TestComposable(content: @Composable () -> Unit) {
-    CompositionLocalProvider(
-        LocalInspectionMode provides true
-    ) {
-        content()
-    }
+// LocalInspectionMode toggles preview/design-time rendering — it has
+// nothing to do with test flakiness, and forcing it true can change what
+// the composable renders, masking the very bug you're trying to fix.
+// The actual fixes for recomposition timing and animation interference:
+
+// Recomposition/state timing — share one scheduler between Dispatchers.Main
+// and runTest so advanceUntilIdle() flushes both instead of racing.
+@Test
+fun testComposeState() = runTest(mainDispatcherRule.dispatcher) {
+    composeTestRule.setContent { MyScreen() }
+    advanceUntilIdle()
+    composeTestRule.onNodeWithText("Loaded").assertIsDisplayed()
 }
+
+// Animation interference — pause the Compose clock before setContent,
+// then drive frames deterministically instead of hoping animations settle.
+composeTestRule.mainClock.autoAdvance = false
+composeTestRule.setContent { AnimatedScreen() }
+composeTestRule.mainClock.advanceTimeByFrame()
+composeTestRule.mainClock.advanceTimeBy(durationMillis)
 ```
 
 ## Verification Workflow

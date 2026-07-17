@@ -258,38 +258,19 @@ interface UserLocalDataSource {
     fun observeUser(id: String): Flow<User>
     fun observeAllUsers(): Flow<List<User>>
 }
-
-class UserLocalDataSourceImpl(
-    private val database: AppDatabase
-) : UserLocalDataSource {
-    override suspend fun getUser(id: String): User? =
-        database.userQueries().getById(id).executeAsOneOrNull()?.toDomain()
-
-    override suspend fun getAllUsers(): List<User> =
-        database.userQueries().getAll().executeAsList().map { it.toDomain() }
-
-    override suspend fun saveUser(user: User) =
-        database.userQueries().insert(user.toEntity())
-
-    override suspend fun saveUsers(users: List<User>) =
-        database.transaction {
-            users.forEach { saveUser(it) }
-        }
-
-    override suspend fun deleteUser(id: String) =
-        database.userQueries().deleteById(id)
-
-    override suspend fun clearAll() =
-        database.userQueries().deleteAll()
-
-    override fun observeUser(id: String): Flow<User> =
-        database.userQueries().getById(id).asFlow().map { it.executeAsOneOrNull()?.toDomain() }
-        .filterNotNull()
-
-    override fun observeAllUsers(): Flow<List<User>> =
-        database.userQueries().getAll().asFlow().map { it.executeAsList().map { entity -> entity.toDomain() } }
-}
 ```
+
+> The implementation of `UserLocalDataSourceImpl` depends on which storage library the project
+> uses — Room and SQLDelight are two different, non-interchangeable libraries, and a single
+> impl that mixes their APIs (e.g. calling `userQueries()` as a function — in real SQLDelight
+> generated code, `userQueries` is a property, not a function) does not compile. Pick one:
+>
+> - **Room (KMP)** — follow the `@ConstructedBy` / `RoomDatabaseConstructor` `expect object`
+>   recipe in the `android-data-layer` skill, and drive multi-statement writes through a
+>   `@Transaction`-annotated suspend DAO function rather than a nonexistent `database.transaction { }`.
+> - **SQLDelight** — follow the `sqldelight-patterns` skill, which uses `database.userQueries`
+>   as a generated *property* (e.g. `database.userQueries.getById(id).executeAsOneOrNull()`)
+>   and `database.transaction { }`, which *is* a real SQLDelight API (unlike Room, where it is not).
 
 ## Use Cases
 
@@ -347,51 +328,66 @@ val dataModule = module {
 
 ## Platform-Specific Database
 
-```kotlin
-// commonMain/kotlin/database/DatabaseFactory.kt
-expect class DatabaseFactory {
-    fun create(): AppDatabase
-}
-
-// Android implementation
-actual class DatabaseFactory(private val context: Context) {
-    actual fun create(): AppDatabase =
-        Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            "app.db"
-        ).build()
-}
-
-// iOS implementation
-actual class DatabaseFactory {
-    actual fun create(): AppDatabase {
-        val dbPath = NSSearchPathForDirectoriesInDomains(
-            NSDocumentDirectory,
-            NSUserDomainMask,
-            true
-        ).first() as String
-        return AppDatabase("$dbPath/app.db")
-    }
-}
-```
+> A single `DatabaseFactory` that instantiates `AppDatabase` directly with a file path (as if
+> it were a plain constructor call) does not compile for either library: Room's `@Database`
+> class is `abstract` and must be built via `Room.databaseBuilder(...)`, and SQLDelight's
+> generated database class takes a `SqlDriver`, not a path string. This also conflates the two
+> libraries' setup into one factory, which isn't a real option — pick one:
+>
+> - **Room (KMP)** — see `android-data-layer`'s `@ConstructedBy(AppDatabaseConstructor::class)` +
+>   `expect object AppDatabaseConstructor : RoomDatabaseConstructor<AppDatabase>` recipe, with
+>   `BundledSQLiteDriver` and a per-platform `Room.databaseBuilder(...)` call.
+> - **SQLDelight** — see `sqldelight-patterns`' `expect class DriverFactory` that produces a
+>   platform `SqlDriver` (`AndroidSqliteDriver` / `NativeSqliteDriver`), passed into the
+>   generated `AppDatabase(driver = ...)` constructor.
 
 ## Repository Testing
 
+MockK is JVM-only and breaks Native/JS targets — `commonTest` must use `kotlin.test` only.
+Rather than moving this suite to `jvmTest`/`androidUnitTest` (which would leave Native/JS
+untested), use hand-written fakes implementing the real data-source interfaces directly in
+`commonTest`:
+
 ```kotlin
 // commonTest/kotlin/data/repository/UserRepositoryTest.kt
+class FakeUserRemoteDataSource : UserRemoteDataSource {
+    var getUserResult: User? = null
+    var getUserCalled = false
+
+    override suspend fun getUser(id: String): User =
+        getUserResult?.also { getUserCalled = true } ?: error("no user configured")
+    override suspend fun getUsers(page: Int): PaginatedResponse<User> = error("not used")
+    override suspend fun createUser(user: User): User = error("not used")
+    override suspend fun updateUser(id: String, user: User): User = error("not used")
+    override suspend fun deleteUser(id: String) = error("not used")
+}
+
+class FakeUserLocalDataSource : UserLocalDataSource {
+    private val users = mutableMapOf<String, User>()
+    var savedUser: User? = null
+
+    override suspend fun getUser(id: String): User? = users[id]
+    override suspend fun getAllUsers(): List<User> = users.values.toList()
+    override suspend fun saveUser(user: User) { users[user.id] = user; savedUser = user }
+    override suspend fun saveUsers(users: List<User>) { users.forEach { saveUser(it) } }
+    override suspend fun deleteUser(id: String) { users.remove(id) }
+    override suspend fun clearAll() { users.clear() }
+    override fun observeUser(id: String): Flow<User> = flowOf(users[id] ?: error("no user"))
+    override fun observeAllUsers(): Flow<List<User>> = flowOf(users.values.toList())
+}
+
 class UserRepositoryTest {
     private lateinit var repository: UserRepository
-    private lateinit var mockRemote: UserRemoteDataSource
-    private lateinit var mockLocal: UserLocalDataSource
+    private lateinit var fakeRemote: FakeUserRemoteDataSource
+    private lateinit var fakeLocal: FakeUserLocalDataSource
 
     @BeforeTest
     fun setup() {
-        mockRemote = mockk()
-        mockLocal = mockk()
+        fakeRemote = FakeUserRemoteDataSource()
+        fakeLocal = FakeUserLocalDataSource()
         repository = UserRepositoryImpl(
-            remoteDataSource = mockRemote,
-            localDataSource = mockLocal,
+            remoteDataSource = fakeRemote,
+            localDataSource = fakeLocal,
             memoryCache = MemoryCache()
         )
     }
@@ -399,28 +395,26 @@ class UserRepositoryTest {
     @Test
     fun `returns cached user when available`() = runTest {
         val cachedUser = User(id = "123", name = "John")
-        coEvery { mockLocal.getUser("123") } returns cachedUser
+        fakeLocal.saveUser(cachedUser)
 
         val result = repository.getUser("123")
 
         assertTrue(result.isSuccess)
         assertEquals(cachedUser, result.getOrNull())
-        coVerify { mockRemote wasNot Called }
+        assertFalse(fakeRemote.getUserCalled)
     }
 
     @Test
     fun `fetches from network when cache empty`() = runTest {
         val networkUser = User(id = "123", name = "John")
-        coEvery { mockLocal.getUser("123") } returns null
-        coEvery { mockRemote.getUser("123") } returns networkUser
-        coEvery { mockLocal.saveUser(any()) } just Runs
+        fakeRemote.getUserResult = networkUser
 
         val result = repository.getUser("123")
 
         assertTrue(result.isSuccess)
         assertEquals(networkUser, result.getOrNull())
-        coVerify { mockRemote.getUser("123") }
-        coVerify { mockLocal.saveUser(networkUser) }
+        assertTrue(fakeRemote.getUserCalled)
+        assertEquals(networkUser, fakeLocal.savedUser)
     }
 }
 ```

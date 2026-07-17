@@ -67,7 +67,7 @@ SubcomposeAsyncImage(
 
 ```kotlin
 AsyncImage(
-    model = ImageRequest.Builder(LocalContext.current)
+    model = ImageRequest.Builder(LocalPlatformContext.current)
         .data(imageUrl)
         .crossfade(300)
         .size(Size.ORIGINAL)
@@ -82,15 +82,17 @@ AsyncImage(
 
 ### Transformations
 
+> Verify against current Coil 3 docs before use — the Transformation API surface may have shifted toward Modifier-based composition for simple shapes.
+
 ```kotlin
 AsyncImage(
-    model = ImageRequest.Builder(LocalContext.current)
+    model = ImageRequest.Builder(LocalPlatformContext.current)
         .data(user.avatarUrl)
         .crossfade(true)
         .transformations(
             CircleCropTransformation(),
             // or RoundedCornersTransformation(16f)
-            // or BlurTransformation(LocalContext.current, radius = 25f)
+            // or BlurTransformation(LocalPlatformContext.current, radius = 25f)
         )
         .build(),
     contentDescription = "Avatar",
@@ -152,6 +154,8 @@ setSingletonImageLoaderFactory { context ->
 
 ```kotlin
 // Preload images for better UX (e.g., in list adapter bind)
+// Android-only as written (context.imageLoader is an Android extension); a KMP
+// equivalent would take PlatformContext instead of Context.
 fun preloadImage(context: Context, url: String) {
     val request = ImageRequest.Builder(context)
         .data(url)
@@ -159,108 +163,6 @@ fun preloadImage(context: Context, url: String) {
         .memoryCachePolicy(CachePolicy.ENABLED)
         .build()
     context.imageLoader.enqueue(request)
-}
-```
-
-## iOS / SwiftUI
-
-### AsyncImage
-
-```swift
-AsyncImage(url: URL(string: article.imageUrl)) { phase in
-    switch phase {
-    case .empty:
-        ProgressView()
-            .frame(maxWidth: .infinity, minHeight: 200)
-    case .success(let image):
-        image
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-            .frame(height: 200)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-    case .failure:
-        Image(systemName: "photo")
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(height: 200)
-            .foregroundStyle(.secondary)
-    @unknown default:
-        EmptyView()
-    }
-}
-```
-
-### Custom Async Image Loader with Caching
-
-```swift
-@Observable
-class ImageCache {
-    static let shared = ImageCache()
-
-    private let cache = NSCache<NSString, UIImage>()
-    private let session = URLSession.shared
-
-    init() {
-        cache.countLimit = 100
-        cache.totalCostLimit = 50 * 1024 * 1024 // 50 MB
-    }
-
-    func image(for url: URL) async throws -> UIImage {
-        let key = url.absoluteString as NSString
-
-        if let cached = cache.object(forKey: key) {
-            return cached
-        }
-
-        let (data, _) = try await session.data(from: url)
-        guard let image = UIImage(data: data) else {
-            throw ImageError.decodingFailed
-        }
-
-        cache.setObject(image, forKey: key, cost: data.count)
-        return image
-    }
-
-    func clearCache() {
-        cache.removeAllObjects()
-    }
-}
-```
-
-### Reusable CachedAsyncImage View
-
-```swift
-struct CachedAsyncImage: View {
-    let url: URL?
-    @State private var image: UIImage?
-    @State private var isLoading = true
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else if isLoading {
-                ShimmerView()
-            } else {
-                Image(systemName: "photo")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .task {
-            guard let url else {
-                isLoading = false
-                return
-            }
-            do {
-                image = try await ImageCache.shared.image(for: url)
-            } catch {
-                // log error
-            }
-            isLoading = false
-        }
-    }
 }
 ```
 
@@ -334,7 +236,7 @@ fun ImageErrorState(
 ```kotlin
 // Coil automatically downsamples, but for manual control:
 AsyncImage(
-    model = ImageRequest.Builder(LocalContext.current)
+    model = ImageRequest.Builder(LocalPlatformContext.current)
         .data(highResUrl)
         .size(400, 300) // downsample to target size
         .precision(Precision.INEXACT) // allow slight size differences
@@ -344,29 +246,6 @@ AsyncImage(
 )
 ```
 
-```swift
-// iOS: Downsample large images
-func downsample(imageAt url: URL, to pointSize: CGSize, scale: CGFloat) -> UIImage? {
-    let imageSourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-    guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, imageSourceOptions) else {
-        return nil
-    }
-
-    let maxDimension = max(pointSize.width, pointSize.height) * scale
-    let options: [CFString: Any] = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceShouldCacheImmediately: true,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-        kCGImageSourceThumbnailMaxPixelSize: maxDimension
-    ]
-
-    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
-        return nil
-    }
-    return UIImage(cgImage: cgImage)
-}
-```
-
 ### Image Transformation Patterns
 
 ```kotlin
@@ -374,10 +253,9 @@ func downsample(imageAt url: URL, to pointSize: CGSize, scale: CGFloat) -> UIIma
 @Composable
 fun Avatar(url: String?, size: Dp = 48.dp) {
     AsyncImage(
-        model = ImageRequest.Builder(LocalContext.current)
+        model = ImageRequest.Builder(LocalPlatformContext.current)
             .data(url)
             .crossfade(true)
-            .transformations(CircleCropTransformation())
             .build(),
         contentDescription = "User avatar",
         placeholder = painterResource(R.drawable.avatar_placeholder),
@@ -408,7 +286,6 @@ fun CardImage(url: String?, modifier: Modifier = Modifier) {
 - Use `crossfade(true)` for smoother transitions from placeholder to loaded image.
 - Configure disk cache size based on app needs (50-200 MB typical).
 - Set memory cache to 20-25% of available app memory.
-- Downsample images to the display size; never load a 4000px image into a 200dp view.
 - Use `ContentScale.Crop` for fixed-size containers, `ContentScale.Fit` for flexible ones.
 - Preload images for items about to scroll into view in lists.
 - Clear caches on low-memory warnings (`onTrimMemory` / `didReceiveMemoryWarning`).

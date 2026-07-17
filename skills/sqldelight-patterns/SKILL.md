@@ -234,19 +234,25 @@ import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOne
 import app.cash.sqldelight.coroutines.mapToOneOrNull
 
-class UserRepository(private val database: AppDatabase) {
+// commonMain — Dispatchers.IO is JVM/Native-only and does not resolve here (breaks JS/Wasm
+// targets); use an injected dispatcher instead (defaults to Dispatchers.Default, which is
+// available on every KMP target).
+class UserRepository(
+    private val database: AppDatabase,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
+) {
 
     fun observeAll(): Flow<List<User>> =
         database.userQueries.selectAll()
             .asFlow()
-            .mapToList(Dispatchers.IO)
+            .mapToList(dispatcher)
 
     fun observeById(id: Long): Flow<User?> =
         database.userQueries.selectById(id)
             .asFlow()
-            .mapToOneOrNull(Dispatchers.IO)
+            .mapToOneOrNull(dispatcher)
 
-    suspend fun insert(user: User) = withContext(Dispatchers.IO) {
+    suspend fun insert(user: User) = withContext(dispatcher) {
         database.userQueries.insert(
             display_name = user.displayName,
             email = user.email,
@@ -256,11 +262,11 @@ class UserRepository(private val database: AppDatabase) {
         )
     }
 
-    suspend fun deleteById(id: Long) = withContext(Dispatchers.IO) {
+    suspend fun deleteById(id: Long) = withContext(dispatcher) {
         database.userQueries.deleteById(id)
     }
 
-    suspend fun replaceAll(users: List<User>) = withContext(Dispatchers.IO) {
+    suspend fun replaceAll(users: List<User>) = withContext(dispatcher) {
         database.transaction {
             database.userQueries.deleteAll()
             users.forEach { user ->
@@ -302,7 +308,12 @@ shared/
 
 ## Testing with In-Memory Driver
 
+`JdbcSqliteDriver` comes from `sqlite-driver` (the JDBC-based driver) and is JVM-only —
+it does not resolve on Android/iOS/JS/Wasm targets. This test belongs in `jvmTest`,
+not `commonTest`.
+
 ```kotlin
+// jvmTest
 class UserRepositoryTest {
 
     private lateinit var database: AppDatabase

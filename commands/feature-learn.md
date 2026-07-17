@@ -45,10 +45,10 @@ Feature Completeness Scores:
   profile ............... 60%   (6 patterns, 2026-03-26)
 
 Top Instincts:
-  sealed-interface-state ....... 0.9  (mvi-architecture)
-  compose-state-hoisting ....... 0.8  (jetpack-compose)
+  sealed-interface-state ....... 0.9  (kotlin-flow-state-event-modeling)
+  compose-state-hoisting ....... 0.8  (compose-state-hoisting)
   repository-interface ......... 0.8  (clean-architecture)
-  koin-module-def .............. 0.7  (koin-patterns)
+  koin-module-def .............. 0.7  (koin)
 ```
 
 ### Specific Feature Detail
@@ -67,17 +67,17 @@ Composite Patterns:
   feature-navigation-wired ..... PRESENT (15%)
 
 Individual Patterns Detected (12):
-  - sealed-interface-state (mvi-architecture)
-  - sealed-interface-intent (mvi-architecture)
-  - sealed-interface-side-effect (mvi-architecture)
-  - mvi-intent-handling (mvi-architecture)
-  - coroutine-structured (coroutines-patterns)
-  - compose-state-hoisting (jetpack-compose)
+  - sealed-interface-state (kotlin-flow-state-event-modeling)
+  - sealed-interface-intent (kotlin-flow-state-event-modeling)
+  - sealed-interface-side-effect (kotlin-flow-state-event-modeling)
+  - mvi-intent-handling (kotlin-flow-state-event-modeling)
+  - coroutine-structured (kotlin-coroutines-structured-concurrency)
+  - compose-state-hoisting (compose-state-hoisting)
   - repository-interface (clean-architecture)
   - repository-impl (clean-architecture)
   - usecase-class (clean-architecture)
-  - koin-module-def (koin-patterns)
-  - koin-viewmodel-injection (koin-patterns)
+  - koin-module-def (koin)
+  - koin-viewmodel-injection (koin)
   - compose-navigation-route (navigation-patterns)
 
 Build Metrics:

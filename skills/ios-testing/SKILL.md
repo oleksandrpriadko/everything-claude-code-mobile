@@ -61,6 +61,8 @@ class UserViewModelTests: XCTestCase {
 
 ### Mocking
 
+> **Cross-reference / known tension:** elsewhere in this plugin's house testing policy (e.g. `android-testing`, `android-data-layer`) the default is fakes over mocks for collaborator substitution — a fake that models real behaviour survives refactors better than a mock asserting call sequences. That preference applies here too where it's practical (e.g. an in-memory fake conforming to a protocol instead of a call-recording mock). It is **not** a mandate to rewrite the protocol-mocking patterns below: mocking is significantly more idiomatic in the Swift/XCTest ecosystem than in Kotlin, and the `MockUserService` style here is standard, correct Swift practice. Reach for a fake when a collaborator has real logic worth modeling; keep the mock when you're only verifying that a call happened.
+
 ```swift
 // ✅ Protocol-based mocking
 protocol UserServiceProtocol {
