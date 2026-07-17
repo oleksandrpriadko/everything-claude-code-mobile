@@ -1,0 +1,59 @@
+ M .claude-plugin/plugin.json
+ M commands/feature-learn.md
+ M commands/mobile-tdd.md
+ D skills/android-patterns/SKILL.md
+ M skills/app-lifecycle/SKILL.md
+ D skills/coroutines-patterns/SKILL.md
+ D skills/expect-actual/SKILL.md
+ D skills/gradle-patterns/SKILL.md
+ M skills/image-loading/SKILL.md
+ M skills/ios-testing/SKILL.md
+ D skills/jetpack-compose/SKILL.md
+ D skills/kmp-di/SKILL.md
+ D skills/kmp-navigation/SKILL.md
+ D skills/kmp-networking/SKILL.md
+ M skills/kmp-repositories/SKILL.md
+ D skills/koin-patterns/SKILL.md
+ D skills/ktor-patterns/SKILL.md
+ D skills/mobile-testing/SKILL.md
+ M skills/mobile-verification/SKILL.md
+ D skills/mvi-architecture/SKILL.md
+ M skills/navigation-compose/SKILL.md
+ M skills/offline-first/SKILL.md
+ M skills/pagination-patterns/SKILL.md
+ M skills/room-patterns/SKILL.md
+ D skills/shared-coroutines/SKILL.md
+ M skills/shared-models/SKILL.md
+ M skills/sqldelight-patterns/SKILL.md
+?? skills/android-data-layer/
+?? skills/android-debugging/
+?? skills/android-dev/
+?? skills/android-gradle-logic/
+?? skills/android-retrofit/
+?? skills/android-testing/
+?? skills/coil-compose/
+?? skills/compose-animations/
+?? skills/compose-focus-navigation/
+?? skills/compose-modifier-and-layout-style/
+?? skills/compose-recomposition-performance/
+?? skills/compose-side-effects/
+?? skills/compose-slot-api-pattern/
+?? skills/compose-stability-diagnostics/
+?? skills/compose-state-authoring/
+?? skills/compose-state-deferred-reads/
+?? skills/compose-state-hoisting/
+?? skills/compose-state-holder-ui-split/
+?? skills/compose-ui-testing-patterns/
+?? skills/compose/
+?? skills/datastore/
+?? skills/gradle-build-performance/
+?? skills/kmp-boundaries/
+?? skills/kmp-ktor/
+?? skills/koin/
+?? skills/kotlin-coroutines-structured-concurrency/
+?? skills/kotlin-coroutines/
+?? skills/kotlin-flow-state-event-modeling/
+?? skills/kotlin-flows/
+?? skills/kotlin-multiplatform-expect-actual/
+?? skills/modularization/
+?? skills/paging/
