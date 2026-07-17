@@ -575,6 +575,8 @@ Contributions welcome! Areas needed:
 
 MIT - Use freely, modify as needed, contribute back if you can.
 
+Some skills under `skills/` are adapted from other open-source projects under their own licenses (Apache 2.0 / MIT) — see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for full attribution and license texts.
+
 ---
 
 **Built for mobile developers using Claude Code, Codex, Cursor, OpenCode, and other coding agents.**
